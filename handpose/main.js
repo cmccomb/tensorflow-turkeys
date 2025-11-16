@@ -1,4 +1,8 @@
 let stream = null;
+let activeVideo = null;
+let isTracking = false;
+let backendReadyPromise = null;
+let modelLoadPromise = null;
 
 function isMobile() {
     const isAndroid = /Android/i.test(navigator.userAgent);
@@ -6,7 +10,7 @@ function isMobile() {
     return isAndroid || isiOS;
 }
 
-const geometryHelpers = window.TurkeyGeometry;
+const geometryHelpers = typeof window !== 'undefined' ? window.TurkeyGeometry : undefined;
 if (!geometryHelpers) {
     throw new Error('TurkeyGeometry helpers are required but not available.');
 }
@@ -81,6 +85,11 @@ function drawPath(points, closePath) {
 }
 
 function showError(message) {
+    if (typeof document === 'undefined') {
+        console.error(message);
+        return;
+    }
+
     const info = document.getElementById('info');
     if (!info) {
         console.error(message);
@@ -101,12 +110,46 @@ function stopCameraStream() {
     if (!stream) {
         return;
     }
-
-    stream.getTracks().forEach(track => track.stop());
+    if (typeof stream.getTracks === 'function') {
+        stream.getTracks().forEach(track => track.stop());
+    }
     stream = null;
 }
 
+function stopAnimationLoop() {
+    if (typeof rafID !== 'number') {
+        return;
+    }
+    if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+    }
+    rafID = null;
+}
+
+function stopTurkeyExperience() {
+    stopAnimationLoop();
+    stopCameraStream();
+}
+
 let model;
+
+async function ensureBackendReady() {
+    if (!backendReadyPromise) {
+        backendReadyPromise = tf.setBackend(state.backend);
+    }
+    return backendReadyPromise;
+}
+
+async function ensureModelLoaded() {
+    if (!modelLoadPromise) {
+        modelLoadPromise = (async () => {
+            await ensureBackendReady();
+            model = await handpose.load();
+            return model;
+        })();
+    }
+    return modelLoadPromise;
+}
 
 async function setupCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -141,20 +184,7 @@ async function loadVideo() {
     return video;
 }
 
-async function main() {
-    await tf.setBackend(state.backend);
-    model = await handpose.load();
-    let video;
-
-    try {
-        video = await loadVideo();
-    } catch (e) {
-        showError(e.message);
-        throw e;
-    }
-
-    // setupDatGui();
-
+function configureCanvas(video) {
     videoWidth = video.videoWidth;
     videoHeight = video.videoHeight;
 
@@ -165,6 +195,11 @@ async function main() {
     video.height = videoHeight;
 
     ctx = canvas.getContext('2d');
+    if (typeof ctx.resetTransform === 'function') {
+        ctx.resetTransform();
+    } else {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
     ctx.clearRect(0, 0, videoWidth, videoHeight);
     ctx.strokeStyle = 'red';
     ctx.fillStyle = 'red';
@@ -178,9 +213,39 @@ async function main() {
         [0, 0, 0], [0, -VIDEO_HEIGHT, 0], [-VIDEO_WIDTH, 0, 0],
         [-VIDEO_WIDTH, -VIDEO_HEIGHT, 0]
     ];
+}
 
+async function startTracking() {
+    if (isTracking) {
+        return;
+    }
 
-    landmarksRealTime(video);
+    try {
+        await ensureModelLoaded();
+        const video = await loadVideo();
+        activeVideo = video;
+        configureCanvas(video);
+        isTracking = true;
+        landmarksRealTime(video);
+    } catch (e) {
+        isTracking = false;
+        showError(e.message);
+        throw e;
+    }
+}
+
+function stopTracking() {
+    if (rafID) {
+        cancelAnimationFrame(rafID);
+        rafID = null;
+    }
+    if (activeVideo) {
+        activeVideo.pause();
+        activeVideo.srcObject = null;
+        activeVideo = null;
+    }
+    stopCameraStream();
+    isTracking = false;
 }
 
 const landmarksRealTime = async (video) => {
@@ -219,58 +284,37 @@ const landmarksRealTime = async (video) => {
 };
 
 
-const btnCapture = typeof document !== 'undefined' ?
-    document.getElementById('btn-capture') : null;
-if (btnCapture) {
-    btnCapture.addEventListener('click', captureSnapshot);
+if (typeof document !== 'undefined') {
+    const btnCapture = document.getElementById('btn-capture');
+    if (btnCapture) {
+        btnCapture.addEventListener('click', captureSnapshot);
+    }
 }
 
 function captureSnapshot() {
     let newImage2 = new Image();
     newImage2.src = canvas.toDataURL('image/png');
     lc.saveShape(LC.createShape('Image', {x: 10, y: 10, image: newImage2}));
-    stopCameraStream();
+    stopTracking();
 }
 
-
-if (typeof navigator !== 'undefined') {
-    navigator.getUserMedia = navigator.getUserMedia ||
-        navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+if (typeof window !== 'undefined') {
+    window.TurkeyHandpose = window.TurkeyHandpose || {};
+    window.TurkeyHandpose.stop = stopTurkeyExperience;
 }
 
-const hasModelDependencies = typeof window !== 'undefined' &&
-    typeof document !== 'undefined' && typeof handpose !== 'undefined' &&
-    typeof tf !== 'undefined';
-
-if (hasModelDependencies) {
+if (typeof window !== 'undefined' && !window.__turkeyDisableAutostart) {
     main();
 }
 
-function __setStreamForTesting(fakeStream) {
-    stream = fakeStream;
+if (typeof window !== 'undefined') {
+    window.startTracking = startTracking;
+    window.stopTracking = stopTracking;
 }
 
-function __setAnimationLoopStateForTesting({rafId, isLoopActive} = {}) {
-    if (typeof rafId !== 'undefined') {
-        rafID = rafId;
-    }
-    if (typeof isLoopActive !== 'undefined') {
-        isAnimationLoopActive = isLoopActive;
-    }
-}
-
-function __getAnimationLoopStateForTesting() {
-    return {rafID, isAnimationLoopActive};
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        stopCameraStream,
-        __setStreamForTesting,
-        __setAnimationLoopStateForTesting,
-        __getAnimationLoopStateForTesting
-    };
-}
+startTracking().catch((error) => {
+    console.error('Unable to start turkey tracking', error);
+});
 
 
 function clipImage(keypoints) {

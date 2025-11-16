@@ -1,6 +1,8 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
 
+    <meta charset="utf-8">
     <title>Hand Turkey</title>
     <meta name="viewport" content="width=device-width, initial-scale=0.7, shrink-to-fit=no, user-scalable=no">
     <link rel="stylesheet" href="style.css">
@@ -77,11 +79,19 @@
 <script src="handpose/geometry.js"></script>
 <script src="handpose/main.js"></script>
 <script src="handpose/offset.min.js"></script>
+<script src="handpose/turkey-tool-helper.js"></script>
 <script src="js_libs/react-0.14.3.js"></script>
 <script src="js_libs/literallycanvas.js"></script>
 
 <script>
-    $("#turkeyModal").modal({backdrop: 'static', keyboard: false});
+    const turkeyModal = $("#turkeyModal");
+    turkeyModal.modal({backdrop: 'static', keyboard: false});
+    turkeyModal.on('hidden.bs.modal', () => {
+        const controls = window.TurkeyHandpose;
+        if (controls && typeof controls.stop === 'function') {
+            controls.stop();
+        }
+    });
 </script>
 
 <script type="text/javascript">
@@ -91,7 +101,15 @@
         return {
             name: 'Capture Turkey',
             iconName: 'turkey',
-            optionsStyle: 'null'
+            optionsStyle: 'null',
+            didBecomeActive: function () {
+                if (window.TurkeyToolHelper &&
+                    typeof window.TurkeyToolHelper.restartTurkeyCapture === 'function') {
+                    window.TurkeyToolHelper.restartTurkeyCapture().catch(function (error) {
+                        console.error('Unable to restart turkey capture', error);
+                    });
+                }
+            }
         }
     };
 
