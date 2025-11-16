@@ -6,6 +6,13 @@ function isMobile() {
     return isAndroid || isiOS;
 }
 
+const geometryHelpers = window.TurkeyGeometry;
+if (!geometryHelpers) {
+    throw new Error('TurkeyGeometry helpers are required but not available.');
+}
+
+const {computeFingerRadius, extractPolygonPoints} = geometryHelpers;
+
 let videoWidth, videoHeight, rafID, ctx, canvas, ANCHOR_POINTS,
     fingerLookupIndices = {
         thumb: [0, 1, 2, 3, 4],
@@ -25,25 +32,20 @@ const state = {
     backend: 'webgl'
 };
 
+const FINGER_COLORS = {
+    indexFinger: 'brown',
+    middleFinger: 'red',
+    ringFinger: 'darkorange',
+    pinky: 'goldenrod',
+    thumb: 'saddlebrown'
+};
+
 
 function drawPoint(y, x, r) {
     ctx.beginPath();
     ctx.arc(x, y, r, 0, 2 * Math.PI);
     ctx.fill();
 }
-
-// function drawToLiterallyCanvas(keypoints) {
-//     drawKeypoints(keypoints);
-//     let newImage2 = new Image();
-//     newImage2.src = canvas.toDataURL("image/png");
-//     newImage2.onload =function() {
-//                     ctx.drawImage(newImage, 0, 0);
-//                     drawKeypoints(predictions[0].landmarks, ctx2);
-//                     let newImage2 = new Image();
-//                     newImage2.src = canvas2.toDataURL( "image/png" );
-//                     lc.saveShape(LC.createShape('Image', {x: 10, y: 10, image: newImage2}));
-//                 };
-// }
 
 function drawKeypoints(keypoints) {
     const keypointsArray = keypoints;
@@ -74,6 +76,24 @@ function drawPath(points, closePath) {
         region.closePath();
     }
     ctx.stroke(region);
+}
+
+function showError(message) {
+    const info = document.getElementById('info');
+    if (!info) {
+        console.error(message);
+        return;
+    }
+    info.textContent = message;
+    info.classList.remove('d-none');
+}
+
+function stopCameraStream() {
+    if (!stream) {
+        return;
+    }
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
 }
 
 let model;
@@ -119,9 +139,7 @@ async function main() {
     try {
         video = await loadVideo();
     } catch (e) {
-        let info = document.getElementById('info');
-        info.textContent = e.message;
-        info.style.display = 'block';
+        showError(e.message);
         throw e;
     }
 
@@ -157,13 +175,11 @@ async function main() {
 
 const landmarksRealTime = async (video) => {
     async function frameLandmarks() {
-        console.log("still going");
         canvas.width = videoWidth;
-        // lc.clear();
         const predictions = await model.estimateHands(video);
         if (predictions.length > 0) {
             const result = predictions[0].landmarks;
-            clip_image(result);
+            clipImage(result);
         }
 
         ctx.drawImage(
@@ -172,8 +188,7 @@ const landmarksRealTime = async (video) => {
 
         if (predictions.length > 0) {
             const result = predictions[0].landmarks;
-            draw_hand(result);
-            // drawKeypoints(result);
+            drawHand(result);
         }
 
         rafID = requestAnimationFrame(frameLandmarks);
@@ -183,14 +198,14 @@ const landmarksRealTime = async (video) => {
 };
 
 
-let btnCapture = document.getElementById( "btn-capture" );
-btnCapture.addEventListener( "click", captureSnapshot );
+let btnCapture = document.getElementById('btn-capture');
+btnCapture.addEventListener('click', captureSnapshot);
 
 function captureSnapshot() {
     let newImage2 = new Image();
-    newImage2.src = canvas.toDataURL( "image/png" );
+    newImage2.src = canvas.toDataURL('image/png');
     lc.saveShape(LC.createShape('Image', {x: 10, y: 10, image: newImage2}));
-    stream.getTracks()[0].stop()
+    stopCameraStream();
 }
 
 
@@ -200,78 +215,54 @@ navigator.getUserMedia = navigator.getUserMedia ||
 main();
 
 
-function clip_image(keypoints) {
-    // Compute radius
-    let r = Math.sqrt(Math.pow((keypoints[5][0]-keypoints[9][0]), 2) + Math.pow((keypoints[5][1]-keypoints[9][1]), 2))*0.5;
-
-    // Clip palm
+function clipImage(keypoints) {
+    const radius = computeFingerRadius(keypoints);
     ctx.beginPath();
-    clip_polygon(keypoints, [0, 1, 2, 5, 9, 13, 17, 0], r, ctx);
-
-    // Clip fingers
-    clip_polygon(keypoints, fingerLookupIndices.indexFinger, r, ctx)
-    clip_polygon(keypoints, fingerLookupIndices.middleFinger, r, ctx)
-    clip_polygon(keypoints, fingerLookupIndices.ringFinger, r, ctx)
-    clip_polygon(keypoints, fingerLookupIndices.pinky, r, ctx)
-    // clip_polygon([1, 2], r, ctx)
-    clip_polygon(keypoints, [2, 3], r, ctx)
-    clip_polygon(keypoints, [3, 4], r, ctx)
-    // clip_polygon(fingerLookupIndices.indexFinger.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.middleFinger.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.ringFinger.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.pinky.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.thumb.slice(2,5), r, ctx)
-
+    clipPolygon(keypoints, [0, 1, 2, 5, 9, 13, 17, 0], radius);
+    clipPolygon(keypoints, fingerLookupIndices.indexFinger, radius);
+    clipPolygon(keypoints, fingerLookupIndices.middleFinger, radius);
+    clipPolygon(keypoints, fingerLookupIndices.ringFinger, radius);
+    clipPolygon(keypoints, fingerLookupIndices.pinky, radius);
+    clipPolygon(keypoints, [2, 3], radius);
+    clipPolygon(keypoints, [3, 4], radius);
     ctx.clip();
-
 }
 
-function draw_hand(keypoints) {
-    // Compute radius
-    let r = Math.sqrt(Math.pow((keypoints[5][0]-keypoints[9][0]), 2) + Math.pow((keypoints[5][1]-keypoints[9][1]), 2))*0.5;
-
-    // Clip fingers
+function drawHand(keypoints) {
+    const radius = computeFingerRadius(keypoints);
     ctx.strokeStyle = 'rgba(0,0,0,0.0)';
 
-    ctx.beginPath(); ctx.fillStyle = 'brown'; clip_polygon(keypoints, fingerLookupIndices.indexFinger, r, ctx); ctx.fill();
-    ctx.beginPath(); ctx.fillStyle = 'red'; clip_polygon(keypoints, fingerLookupIndices.middleFinger, r, ctx); ctx.fill();
-    ctx.beginPath(); ctx.fillStyle = 'darkorange'; clip_polygon(keypoints, fingerLookupIndices.ringFinger, r, ctx); ctx.fill();
-    ctx.beginPath(); ctx.fillStyle = 'goldenrod'; clip_polygon(keypoints, fingerLookupIndices.pinky, r, ctx); ctx.fill();
-    // clip_polygon([1, 2], r, ctx)
-    ctx.beginPath(); ctx.fillStyle = 'saddlebrown'; clip_polygon(keypoints, [2, 3], r, ctx); ctx.fill();
-    ctx.beginPath(); ctx.fillStyle = 'saddlebrown'; clip_polygon(keypoints, [3, 4], r, ctx); ctx.fill();
-    // clip_polygon(fingerLookupIndices.indexFinger.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.middleFinger.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.ringFinger.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.pinky.slice(1,5), r, ctx)
-    // clip_polygon(fingerLookupIndices.thumb.slice(2,5), r, ctx)
+    fillSegment(keypoints, fingerLookupIndices.indexFinger, FINGER_COLORS.indexFinger, radius);
+    fillSegment(keypoints, fingerLookupIndices.middleFinger, FINGER_COLORS.middleFinger, radius);
+    fillSegment(keypoints, fingerLookupIndices.ringFinger, FINGER_COLORS.ringFinger, radius);
+    fillSegment(keypoints, fingerLookupIndices.pinky, FINGER_COLORS.pinky, radius);
+    fillSegment(keypoints, [2, 3], FINGER_COLORS.thumb, radius);
+    fillSegment(keypoints, [3, 4], FINGER_COLORS.thumb, radius);
 
-    // Clip palm
     ctx.beginPath();
-    ctx.fillStyle = 'saddlebrown';
-    clip_polygon(keypoints, [0, 1, 2, 5, 9, 13, 17, 0], r, ctx);
+    ctx.fillStyle = FINGER_COLORS.thumb;
+    clipPolygon(keypoints, [0, 1, 2, 5, 9, 13, 17, 0], radius);
     ctx.fill();
-
-
-
 }
 
-function clip_polygon(keypoints, idxs, r, ctx) {
-    // Get points
-    let points = []
-    for (let i=0; i < idxs.length; i++) {
-        points.push([keypoints[idxs[i]][0], keypoints[idxs[i]][1]])
+function fillSegment(keypoints, indices, color, radius) {
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    clipPolygon(keypoints, indices, radius);
+    ctx.fill();
+}
+
+function clipPolygon(keypoints, idxs, radius) {
+    const points = extractPolygonPoints(keypoints, idxs);
+    const offset = new Offset();
+    const polygons = offset.data(points).margin(radius);
+    const polygon = polygons[0] || points;
+    if (!polygon || polygon.length === 0) {
+        return;
     }
-
-    // Make points
-    let offset = new Offset();
-    let pts = offset.data(points).margin(r)[0];
-
-    // Draw polygon
-    ctx.moveTo(pts[0][0], pts[0][1])
-    for (let i=1; i < pts.length; i++) {
-        ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.moveTo(polygon[0][0], polygon[0][1]);
+    for (let i = 1; i < polygon.length; i++) {
+        ctx.lineTo(polygon[i][0], polygon[i][1]);
     }
     ctx.stroke();
-
 }
