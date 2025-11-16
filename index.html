@@ -81,7 +81,14 @@
 <script src="js_libs/literallycanvas.js"></script>
 
 <script>
-    $("#turkeyModal").modal({backdrop: 'static', keyboard: false});
+    const turkeyModal = $("#turkeyModal");
+    turkeyModal.modal({backdrop: 'static', keyboard: false});
+    turkeyModal.on('hidden.bs.modal', () => {
+        const controls = window.TurkeyHandpose;
+        if (controls && typeof controls.stop === 'function') {
+            controls.stop();
+        }
+    });
 </script>
 
 <script type="text/javascript">

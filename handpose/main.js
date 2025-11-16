@@ -6,7 +6,7 @@ function isMobile() {
     return isAndroid || isiOS;
 }
 
-const geometryHelpers = window.TurkeyGeometry;
+const geometryHelpers = typeof window !== 'undefined' ? window.TurkeyGeometry : undefined;
 if (!geometryHelpers) {
     throw new Error('TurkeyGeometry helpers are required but not available.');
 }
@@ -92,8 +92,25 @@ function stopCameraStream() {
     if (!stream) {
         return;
     }
-    stream.getTracks().forEach(track => track.stop());
+    if (typeof stream.getTracks === 'function') {
+        stream.getTracks().forEach(track => track.stop());
+    }
     stream = null;
+}
+
+function stopAnimationLoop() {
+    if (typeof rafID !== 'number') {
+        return;
+    }
+    if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+    }
+    rafID = null;
+}
+
+function stopTurkeyExperience() {
+    stopAnimationLoop();
+    stopCameraStream();
 }
 
 let model;
@@ -198,8 +215,12 @@ const landmarksRealTime = async (video) => {
 };
 
 
-let btnCapture = document.getElementById('btn-capture');
-btnCapture.addEventListener('click', captureSnapshot);
+if (typeof document !== 'undefined') {
+    const btnCapture = document.getElementById('btn-capture');
+    if (btnCapture) {
+        btnCapture.addEventListener('click', captureSnapshot);
+    }
+}
 
 function captureSnapshot() {
     let newImage2 = new Image();
@@ -209,10 +230,31 @@ function captureSnapshot() {
 }
 
 
-navigator.getUserMedia = navigator.getUserMedia ||
-    navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+if (typeof navigator !== 'undefined') {
+    navigator.getUserMedia = navigator.getUserMedia ||
+        navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+}
 
-main();
+if (typeof window !== 'undefined') {
+    window.TurkeyHandpose = window.TurkeyHandpose || {};
+    window.TurkeyHandpose.stop = stopTurkeyExperience;
+}
+
+if (typeof window !== 'undefined' && !window.__turkeyDisableAutostart) {
+    main();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        stopTurkeyExperience,
+        __setStream(value) {
+            stream = value;
+        },
+        __setRafID(value) {
+            rafID = value;
+        }
+    };
+}
 
 
 function clipImage(keypoints) {
