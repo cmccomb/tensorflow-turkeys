@@ -13,7 +13,7 @@ if (!geometryHelpers) {
 
 const {computeFingerRadius, extractPolygonPoints} = geometryHelpers;
 
-let videoWidth, videoHeight, rafID, ctx, canvas, ANCHOR_POINTS,
+let videoWidth, videoHeight, rafID = null, ctx, canvas, ANCHOR_POINTS,
     fingerLookupIndices = {
         thumb: [0, 1, 2, 3, 4],
         indexFinger: [0, 5, 6, 7, 8],
@@ -31,6 +31,8 @@ const mobile = isMobile();
 const state = {
     backend: 'webgl'
 };
+
+let isAnimationLoopActive = false;
 
 const FINGER_COLORS = {
     indexFinger: 'brown',
@@ -89,9 +91,17 @@ function showError(message) {
 }
 
 function stopCameraStream() {
+    isAnimationLoopActive = false;
+
+    if (rafID !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+        rafID = null;
+    }
+
     if (!stream) {
         return;
     }
+
     stream.getTracks().forEach(track => track.stop());
     stream = null;
 }
@@ -175,6 +185,9 @@ async function main() {
 
 const landmarksRealTime = async (video) => {
     async function frameLandmarks() {
+        if (!isAnimationLoopActive) {
+            return;
+        }
         canvas.width = videoWidth;
         const predictions = await model.estimateHands(video);
         if (predictions.length > 0) {
@@ -191,15 +204,26 @@ const landmarksRealTime = async (video) => {
             drawHand(result);
         }
 
+        if (!isAnimationLoopActive) {
+            return;
+        }
         rafID = requestAnimationFrame(frameLandmarks);
     }
 
+    if (rafID !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+        rafID = null;
+    }
+    isAnimationLoopActive = true;
     frameLandmarks();
 };
 
 
-let btnCapture = document.getElementById('btn-capture');
-btnCapture.addEventListener('click', captureSnapshot);
+const btnCapture = typeof document !== 'undefined' ?
+    document.getElementById('btn-capture') : null;
+if (btnCapture) {
+    btnCapture.addEventListener('click', captureSnapshot);
+}
 
 function captureSnapshot() {
     let newImage2 = new Image();
@@ -209,10 +233,44 @@ function captureSnapshot() {
 }
 
 
-navigator.getUserMedia = navigator.getUserMedia ||
-    navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+if (typeof navigator !== 'undefined') {
+    navigator.getUserMedia = navigator.getUserMedia ||
+        navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+}
 
-main();
+const hasModelDependencies = typeof window !== 'undefined' &&
+    typeof document !== 'undefined' && typeof handpose !== 'undefined' &&
+    typeof tf !== 'undefined';
+
+if (hasModelDependencies) {
+    main();
+}
+
+function __setStreamForTesting(fakeStream) {
+    stream = fakeStream;
+}
+
+function __setAnimationLoopStateForTesting({rafId, isLoopActive} = {}) {
+    if (typeof rafId !== 'undefined') {
+        rafID = rafId;
+    }
+    if (typeof isLoopActive !== 'undefined') {
+        isAnimationLoopActive = isLoopActive;
+    }
+}
+
+function __getAnimationLoopStateForTesting() {
+    return {rafID, isAnimationLoopActive};
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        stopCameraStream,
+        __setStreamForTesting,
+        __setAnimationLoopStateForTesting,
+        __getAnimationLoopStateForTesting
+    };
+}
 
 
 function clipImage(keypoints) {
