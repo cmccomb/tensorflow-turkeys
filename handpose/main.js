@@ -303,18 +303,30 @@ if (typeof window !== 'undefined') {
     window.TurkeyHandpose.stop = stopTurkeyExperience;
 }
 
-if (typeof window !== 'undefined' && !window.__turkeyDisableAutostart) {
-    main();
-}
-
 if (typeof window !== 'undefined') {
     window.startTracking = startTracking;
     window.stopTracking = stopTracking;
 }
 
-startTracking().catch((error) => {
-    console.error('Unable to start turkey tracking', error);
-});
+function shouldAutoStart() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+    if (window.__turkeyDisableAutostart) {
+        return false;
+    }
+    return typeof tf !== 'undefined' && typeof handpose !== 'undefined';
+}
+
+function bootstrapAutostart() {
+    startTracking().catch((error) => {
+        console.error('Unable to start turkey tracking', error);
+    });
+}
+
+if (shouldAutoStart()) {
+    bootstrapAutostart();
+}
 
 
 function clipImage(keypoints) {
@@ -367,4 +379,40 @@ function clipPolygon(keypoints, idxs, radius) {
         ctx.lineTo(polygon[i][0], polygon[i][1]);
     }
     ctx.stroke();
+}
+
+function __setStreamForTesting(newStream) {
+    stream = newStream;
+}
+
+function __setRafID(newRafID) {
+    rafID = newRafID;
+}
+
+function __setAnimationLoopStateForTesting({rafId, isLoopActive}) {
+    if (typeof rafId === 'number') {
+        rafID = rafId;
+    }
+    if (typeof isLoopActive === 'boolean') {
+        isAnimationLoopActive = isLoopActive;
+    }
+}
+
+function __getAnimationLoopStateForTesting() {
+    return {
+        rafID,
+        isAnimationLoopActive,
+    };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        stopCameraStream,
+        stopTurkeyExperience,
+        __setStream: __setStreamForTesting,
+        __setStreamForTesting,
+        __setRafID,
+        __setAnimationLoopStateForTesting,
+        __getAnimationLoopStateForTesting,
+    };
 }

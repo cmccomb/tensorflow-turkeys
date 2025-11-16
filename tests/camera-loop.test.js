@@ -17,6 +17,10 @@ describe('camera loop controls', () => {
     return require('../handpose/main.js');
   };
 
+  it('safely loads even when TensorFlow globals are missing', () => {
+    expect(() => loadModule()).not.toThrow();
+  });
+
   it('cancels pending animation frames when stopping the camera stream', () => {
     const handposeMain = loadModule();
     const fakeTrack = { stop: jest.fn() };
