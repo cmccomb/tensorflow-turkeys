@@ -1,4 +1,8 @@
 let stream = null;
+let activeVideo = null;
+let isTracking = false;
+let backendReadyPromise = null;
+let modelLoadPromise = null;
 
 function isMobile() {
     const isAndroid = /Android/i.test(navigator.userAgent);
@@ -120,6 +124,24 @@ function stopTurkeyExperience() {
 
 let model;
 
+async function ensureBackendReady() {
+    if (!backendReadyPromise) {
+        backendReadyPromise = tf.setBackend(state.backend);
+    }
+    return backendReadyPromise;
+}
+
+async function ensureModelLoaded() {
+    if (!modelLoadPromise) {
+        modelLoadPromise = (async () => {
+            await ensureBackendReady();
+            model = await handpose.load();
+            return model;
+        })();
+    }
+    return modelLoadPromise;
+}
+
 async function setupCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error(
@@ -153,20 +175,7 @@ async function loadVideo() {
     return video;
 }
 
-async function main() {
-    await tf.setBackend(state.backend);
-    model = await handpose.load();
-    let video;
-
-    try {
-        video = await loadVideo();
-    } catch (e) {
-        showError(e.message);
-        throw e;
-    }
-
-    // setupDatGui();
-
+function configureCanvas(video) {
     videoWidth = video.videoWidth;
     videoHeight = video.videoHeight;
 
@@ -177,6 +186,11 @@ async function main() {
     video.height = videoHeight;
 
     ctx = canvas.getContext('2d');
+    if (typeof ctx.resetTransform === 'function') {
+        ctx.resetTransform();
+    } else {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
     ctx.clearRect(0, 0, videoWidth, videoHeight);
     ctx.strokeStyle = 'red';
     ctx.fillStyle = 'red';
@@ -190,9 +204,39 @@ async function main() {
         [0, 0, 0], [0, -VIDEO_HEIGHT, 0], [-VIDEO_WIDTH, 0, 0],
         [-VIDEO_WIDTH, -VIDEO_HEIGHT, 0]
     ];
+}
 
+async function startTracking() {
+    if (isTracking) {
+        return;
+    }
 
-    landmarksRealTime(video);
+    try {
+        await ensureModelLoaded();
+        const video = await loadVideo();
+        activeVideo = video;
+        configureCanvas(video);
+        isTracking = true;
+        landmarksRealTime(video);
+    } catch (e) {
+        isTracking = false;
+        showError(e.message);
+        throw e;
+    }
+}
+
+function stopTracking() {
+    if (rafID) {
+        cancelAnimationFrame(rafID);
+        rafID = null;
+    }
+    if (activeVideo) {
+        activeVideo.pause();
+        activeVideo.srcObject = null;
+        activeVideo = null;
+    }
+    stopCameraStream();
+    isTracking = false;
 }
 
 const landmarksRealTime = async (video) => {
@@ -231,13 +275,7 @@ function captureSnapshot() {
     let newImage2 = new Image();
     newImage2.src = canvas.toDataURL('image/png');
     lc.saveShape(LC.createShape('Image', {x: 10, y: 10, image: newImage2}));
-    stopTurkeyExperience();
-}
-
-
-if (typeof navigator !== 'undefined') {
-    navigator.getUserMedia = navigator.getUserMedia ||
-        navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    stopTracking();
 }
 
 if (typeof window !== 'undefined') {
@@ -249,17 +287,14 @@ if (typeof window !== 'undefined' && !window.__turkeyDisableAutostart) {
     main();
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        stopTurkeyExperience,
-        __setStream(value) {
-            stream = value;
-        },
-        __setRafID(value) {
-            rafID = value;
-        }
-    };
+if (typeof window !== 'undefined') {
+    window.startTracking = startTracking;
+    window.stopTracking = stopTracking;
 }
+
+startTracking().catch((error) => {
+    console.error('Unable to start turkey tracking', error);
+});
 
 
 function clipImage(keypoints) {
