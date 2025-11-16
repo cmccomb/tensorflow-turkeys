@@ -17,7 +17,7 @@ if (!geometryHelpers) {
 
 const {computeFingerRadius, extractPolygonPoints} = geometryHelpers;
 
-let videoWidth, videoHeight, rafID, ctx, canvas, ANCHOR_POINTS,
+let videoWidth, videoHeight, rafID = null, ctx, canvas, ANCHOR_POINTS,
     fingerLookupIndices = {
         thumb: [0, 1, 2, 3, 4],
         indexFinger: [0, 5, 6, 7, 8],
@@ -35,6 +35,8 @@ const mobile = isMobile();
 const state = {
     backend: 'webgl'
 };
+
+let isAnimationLoopActive = false;
 
 const FINGER_COLORS = {
     indexFinger: 'brown',
@@ -98,6 +100,13 @@ function showError(message) {
 }
 
 function stopCameraStream() {
+    isAnimationLoopActive = false;
+
+    if (rafID !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+        rafID = null;
+    }
+
     if (!stream) {
         return;
     }
@@ -241,6 +250,9 @@ function stopTracking() {
 
 const landmarksRealTime = async (video) => {
     async function frameLandmarks() {
+        if (!isAnimationLoopActive) {
+            return;
+        }
         canvas.width = videoWidth;
         const predictions = await model.estimateHands(video);
         if (predictions.length > 0) {
@@ -257,9 +269,17 @@ const landmarksRealTime = async (video) => {
             drawHand(result);
         }
 
+        if (!isAnimationLoopActive) {
+            return;
+        }
         rafID = requestAnimationFrame(frameLandmarks);
     }
 
+    if (rafID !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+        rafID = null;
+    }
+    isAnimationLoopActive = true;
     frameLandmarks();
 };
 
