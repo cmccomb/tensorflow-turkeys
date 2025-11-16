@@ -10,7 +10,7 @@ function isMobile() {
     return isAndroid || isiOS;
 }
 
-const geometryHelpers = window.TurkeyGeometry;
+const geometryHelpers = typeof window !== 'undefined' ? window.TurkeyGeometry : undefined;
 if (!geometryHelpers) {
     throw new Error('TurkeyGeometry helpers are required but not available.');
 }
@@ -83,6 +83,11 @@ function drawPath(points, closePath) {
 }
 
 function showError(message) {
+    if (typeof document === 'undefined') {
+        console.error(message);
+        return;
+    }
+
     const info = document.getElementById('info');
     if (!info) {
         console.error(message);
@@ -96,8 +101,25 @@ function stopCameraStream() {
     if (!stream) {
         return;
     }
-    stream.getTracks().forEach(track => track.stop());
+    if (typeof stream.getTracks === 'function') {
+        stream.getTracks().forEach(track => track.stop());
+    }
     stream = null;
+}
+
+function stopAnimationLoop() {
+    if (typeof rafID !== 'number') {
+        return;
+    }
+    if (typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafID);
+    }
+    rafID = null;
+}
+
+function stopTurkeyExperience() {
+    stopAnimationLoop();
+    stopCameraStream();
 }
 
 let model;
@@ -242,8 +264,12 @@ const landmarksRealTime = async (video) => {
 };
 
 
-let btnCapture = document.getElementById('btn-capture');
-btnCapture.addEventListener('click', captureSnapshot);
+if (typeof document !== 'undefined') {
+    const btnCapture = document.getElementById('btn-capture');
+    if (btnCapture) {
+        btnCapture.addEventListener('click', captureSnapshot);
+    }
+}
 
 function captureSnapshot() {
     let newImage2 = new Image();
@@ -252,9 +278,14 @@ function captureSnapshot() {
     stopTracking();
 }
 
+if (typeof window !== 'undefined') {
+    window.TurkeyHandpose = window.TurkeyHandpose || {};
+    window.TurkeyHandpose.stop = stopTurkeyExperience;
+}
 
-navigator.getUserMedia = navigator.getUserMedia ||
-    navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+if (typeof window !== 'undefined' && !window.__turkeyDisableAutostart) {
+    main();
+}
 
 if (typeof window !== 'undefined') {
     window.startTracking = startTracking;
