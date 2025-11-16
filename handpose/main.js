@@ -79,6 +79,11 @@ function drawPath(points, closePath) {
 }
 
 function showError(message) {
+    if (typeof document === 'undefined') {
+        console.error(message);
+        return;
+    }
+
     const info = document.getElementById('info');
     if (!info) {
         console.error(message);
@@ -226,7 +231,7 @@ function captureSnapshot() {
     let newImage2 = new Image();
     newImage2.src = canvas.toDataURL('image/png');
     lc.saveShape(LC.createShape('Image', {x: 10, y: 10, image: newImage2}));
-    stopCameraStream();
+    stopTurkeyExperience();
 }
 
 
